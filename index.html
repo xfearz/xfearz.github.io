@@ -30,28 +30,19 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 .float-btn{border:none;border-radius:999px;padding:10px 14px;background:#fff;color:var(--primary);box-shadow:0 4px 12px rgba(0,0,0,.2);cursor:pointer;font-weight:600}
 .hidden{display:none}
 
-/* ===== FULLSCREEN LOGIN OVERLAY ===== */
-#login-overlay{
-  position:fixed; inset:0; z-index:9999;
-  background:linear-gradient(180deg, rgba(0,0,0,.6), rgba(0,0,0,.7));
-  display:flex; align-items:center; justify-content:center;
-}
-.login-card{
-  width:min(92vw, 380px); background:#fff; border-radius:14px; padding:22px;
-  box-shadow:0 10px 30px rgba(0,0,0,.35); text-align:center;
-}
-.login-card h2{ margin:6px 0 4px; }
-.login-card p { margin:6px 0 16px; color:#444; font-size:14px; }
-.login-input{
-  width:100%; padding:12px 14px; font-size:16px; border:1px solid #ddd; border-radius:10px; outline:none;
-}
-.login-actions{ margin-top:14px; display:flex; gap:10px; justify-content:center; }
-.login-btn{
-  padding:10px 14px; border:none; border-radius:10px; cursor:pointer; font-weight:700;
-}
-.btn-primary{ background:var(--primary); color:#fff; }
-.btn-ghost{ background:#f4f6ff; color:#345; }
-.login-note{ font-size:12px; color:#666; margin-top:10px; }
+/* FULLSCREEN LOGIN OVERLAY */
+#login-overlay{position:fixed;inset:0;z-index:9999;background:linear-gradient(180deg,rgba(0,0,0,.6),rgba(0,0,0,.7));display:flex;align-items:center;justify-content:center}
+.login-card{width:min(92vw,380px);background:#fff;border-radius:14px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.35);text-align:center}
+.login-card h2{margin:6px 0 4px}.login-card p{margin:6px 0 16px;color:#444;font-size:14px}
+.login-input{width:100%;padding:12px 14px;font-size:16px;border:1px solid #ddd;border-radius:10px;outline:none}
+.login-actions{margin-top:14px;display:flex;gap:10px;justify-content:center}
+.login-btn{padding:10px 14px;border:none;border-radius:10px;cursor:pointer;font-weight:700}
+.btn-primary{background:var(--primary);color:#fff}.btn-ghost{background:#f4f6ff;color:#345}
+.login-note{font-size:12px;color:#666;margin-top:10px}
+
+/* END CONTROL (nút qua chap sau ở cuối trang) */
+.end-controls{display:flex;justify-content:center;margin:18px 0 28px}
+.end-controls .next-chap-btn{padding:10px 16px;border:none;border-radius:999px;font-weight:700;background:var(--primary);color:#fff;cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,.2)}
 </style>
 </head>
 <body>
@@ -60,7 +51,7 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
   <button class="home-btn" onclick="goHome()">Trang chủ</button>
 </header>
 
-<!-- ===== LOGIN OVERLAY ===== -->
+<!-- LOGIN OVERLAY -->
 <div id="login-overlay" class="hidden" aria-hidden="true">
   <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <h2 id="login-title">Đăng nhập</h2>
@@ -94,6 +85,12 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 
       <h2 class="chapter-title" id="chapter-title"></h2>
       <div id="manga-pages"></div>
+
+      <!-- Nút qua chap sau ở CUỐI TRANG -->
+      <div class="end-controls">
+        <button id="next-chap-bottom" class="next-chap-btn">⏭ Qua chap sau</button>
+      </div>
+
       <p class="tip">Cuộn dọc, ảnh tải lần lượt. Bật “Chế độ tiết kiệm” để giới hạn kết nối khi mạng yếu. (Tiến độ đọc sẽ được lưu tự động)</p>
     </div>
   </div>
@@ -121,7 +118,7 @@ const BASE = (() => {
   return p.endsWith('/') ? p : p.replace(/[^/]+$/, '');
 })();
 
-/* ===== Config truyện (ví dụ có 2 bộ, bạn chỉnh số chap cho đúng) ===== */
+/* ===== Config truyện (ví dụ) ===== */
 const truyenList = [
   { ten: "Manhwa1", folder: "Manhwa1", cover: "Manhwa1/bg.jpg", soChap: 97 },
   { ten: "Manhwa2", folder: "Manhwa2", cover: "Manhwa2/bg.jpg", soChap: 2 }
@@ -137,6 +134,7 @@ const existCache = new Map();
 
 /* ===== Helpers ===== */
 const $ = (id) => document.getElementById(id);
+const SAVE_KEY = 'manga_reader_progress_v1';
 
 const pageUrl = (folder, chap, page, pat) => (
   pat === 'backslash'
@@ -147,17 +145,14 @@ const pageUrl = (folder, chap, page, pat) => (
 function probe(src, {timeoutMs=10000, retries=1} = {}) {
   const cached = existCache.get(src);
   if (cached !== undefined) return Promise.resolve(cached);
-
   return new Promise((resolve) => {
     let done = false, tmr;
     const img = new Image();
     const clean = (ok) => { if (done) return; done = true; clearTimeout(tmr); existCache.set(src, ok); resolve(ok); };
     img.onload = () => clean(true);
     img.onerror = async () => {
-      if (retries > 0) {
-        await new Promise(r => setTimeout(r, 600));
-        resolve(probe(src, {timeoutMs, retries: retries - 1}));
-      } else clean(false);
+      if (retries > 0) { await new Promise(r => setTimeout(r, 600)); resolve(probe(src, {timeoutMs, retries: retries - 1})); }
+      else clean(false);
     };
     tmr = setTimeout(() => clean(false), timeoutMs);
     img.src = src;
@@ -176,12 +171,8 @@ async function detectPattern(folder, chap) {
 }
 
 /* ====== Lưu/Phục hồi tiến độ ====== */
-const SAVE_KEY = 'manga_reader_progress_v1';
-
 function saveProgress(state){
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({...state, ts: Date.now()}));
-  } catch(_) {}
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({...state, ts: Date.now()})); } catch(_) {}
 }
 function loadProgress(){
   try {
@@ -192,6 +183,10 @@ function loadProgress(){
     return data;
   } catch(_) { return null; }
 }
+function clearProgress(){
+  try { localStorage.removeItem(SAVE_KEY); } catch(_) {}
+}
+
 // Ước lượng trang gần đỉnh viewport để lưu
 function getVisiblePageApprox(){
   const pages = Array.from(document.querySelectorAll('#manga-pages .page'));
@@ -230,32 +225,23 @@ function hideLogin(){
   overlay.setAttribute('aria-hidden','true');
   document.body.style.overflow='';
 }
-function validatePass(pw){
-  return /^[A-Z]$/.test(pw || '');
-}
+function validatePass(pw){ return /^[A-Z]$/.test(pw || ''); }
 function handleLoginSubmit(){
   const val = $('login-input').value.trim();
   if (validatePass(val)){
     setCookie('manga_login','1',365);
     hideLogin();
-    // tiếp tục init UI sau login
     afterLoginInit();
   } else {
-    // chuyển thẳng qua YouTube nếu sai
     location.href = 'https://www.youtube.com/';
   }
 }
 
 /* ===== UI khởi tạo ===== */
 document.addEventListener('DOMContentLoaded', () => {
-  // kiểm tra cookie login
-  if (getCookie('manga_login') === '1'){
-    afterLoginInit();
-  } else {
-    showLogin();
-  }
+  if (getCookie('manga_login') === '1'){ afterLoginInit(); }
+  else { showLogin(); }
 
-  // login events
   $('login-submit').addEventListener('click', handleLoginSubmit);
   $('login-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') handleLoginSubmit(); });
   $('login-youtube').addEventListener('click', ()=> location.href='https://www.youtube.com/');
@@ -267,28 +253,22 @@ function afterLoginInit(){
 
   $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
   $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
+  $('next-chap-bottom').addEventListener('click', ()=> goToNextChap()); // NÚT CUỐI TRANG
   $('chap-select').addEventListener('change', e=> goToChap(parseInt(e.target.value)));
-  $('data-saver').addEventListener('change', () => {
-    MAX_CONCURRENCY = $('data-saver').checked ? 2 : 4;
-  });
+  $('data-saver').addEventListener('change', () => { MAX_CONCURRENCY = $('data-saver').checked ? 2 : 4; });
 
   $('to-top').addEventListener('click', () => $('chapter-top').scrollIntoView({behavior:'smooth'}));
   $('to-bottom').addEventListener('click', () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
   window.addEventListener('scroll', () => {
     $('floater').classList.toggle('hidden', window.scrollY < 400 || $('reading-page').classList.contains('hidden'));
-    if (!$('reading-page').classList.contains('hidden') && currentTruyen){
-      throttledSave();
-    }
+    if (!$('reading-page').classList.contains('hidden') && currentTruyen){ throttledSave(); }
   });
 
   // Phục hồi tiến độ đọc nếu có
   const state = loadProgress();
   if (state){
     const tr = truyenList.find(x => x.ten === state.truyen);
-    if (tr){
-      openTruyen(tr, {restore: state});
-      return;
-    }
+    if (tr){ openTruyen(tr, {restore: state}); return; }
   }
 }
 
@@ -332,7 +312,9 @@ function openTruyen(t, opts={}) {
   }
 }
 
+/* Khi bấm Trang chủ: xoá tiến độ => reload sau đó sẽ KHÔNG vào chỗ đọc dở */
 function goHome() {
+  clearProgress(); /* <<< quan trọng */
   $('reading-page').classList.add('hidden');
   $('truyen-list').classList.remove('hidden');
   document.querySelector('header h1').textContent = '📖 Web Đọc Truyện';
@@ -356,10 +338,8 @@ async function startChapter(ch, opts={}){
     return;
   }
 
-  // Sinh trước vài placeholder
   for (let i = 0; i < DISCOVER_AHEAD; i++) spawnNextPlaceholder(pat);
 
-  // Sentinel để nạp thêm
   let sentinel = $('sentinel');
   if (!sentinel) {
     sentinel = document.createElement('div');
@@ -375,7 +355,6 @@ async function startChapter(ch, opts={}){
   }, {rootMargin: '1200px 0px'});
   ioMore.observe(sentinel);
 
-  // Phục hồi tới trang đã lưu nếu có
   if (opts.restorePage && Number.isFinite(opts.restorePage)){
     await ensurePageExists(pat, opts.restorePage);
     scrollToPage(opts.restorePage);
