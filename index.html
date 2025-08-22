@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Trang Đọc Truyện – tối ưu mạng yếu</title>
+<title>Trang Đọc Truyện – tối ưu mạng yếu + lưu tiến độ</title>
 <style>
 :root { --primary:#2d89ef; --bg:#f7f7f7; --text:#222; }
 *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
@@ -57,7 +57,7 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 
       <h2 class="chapter-title" id="chapter-title"></h2>
       <div id="manga-pages"></div>
-      <p class="tip">Cuộn dọc, ảnh tải lần lượt. Bật “Chế độ tiết kiệm” để giới hạn kết nối khi mạng yếu.</p>
+      <p class="tip">Cuộn dọc, ảnh tải lần lượt. Bật “Chế độ tiết kiệm” để giới hạn kết nối khi mạng yếu. (Tiến độ đọc sẽ được lưu tự động)</p>
     </div>
   </div>
 </main>
@@ -74,7 +74,7 @@ const BASE = (() => {
   return p.endsWith('/') ? p : p.replace(/[^/]+$/, '');
 })();
 
-/* ===== Config truyện (giữ Manhwa1) ===== */
+/* ===== Config truyện ===== */
 const truyenList = [
   { ten: "Manhwa1", folder: "Manhwa1", cover: "Manhwa1/bg.jpg", soChap: 97 }
 ];
@@ -88,6 +88,8 @@ const patternCache = new Map(); // chap -> 'plain' | 'backslash'
 const existCache = new Map();
 
 /* ===== Helpers ===== */
+const $ = (id) => document.getElementById(id);
+
 const pageUrl = (folder, chap, page, pat) => (
   pat === 'backslash'
    ? `${BASE}${folder}/Chap${chap}/Chap${chap}%5C${page}.jpg`
@@ -125,10 +127,53 @@ async function detectPattern(folder, chap) {
   return pat;
 }
 
-/* ===== DOM refs (KHÔNG dùng biến global theo id nữa) ===== */
-const $ = (id) => document.getElementById(id);
+/* ====== Lưu/Phục hồi tiến độ ====== */
+const SAVE_KEY = 'manga_reader_progress_v1';
 
-/* ===== UI ===== */
+function saveProgress(state){
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({...state, ts: Date.now()}));
+  } catch(_) {}
+}
+
+function loadProgress(){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    // hợp lệ tối thiểu
+    if (!data || !data.truyen || !data.chap) return null;
+    return data;
+  } catch(_) { return null; }
+}
+
+// Tìm page đang ở gần đỉnh viewport nhất (để lưu)
+function getVisiblePageApprox(){
+  const pages = Array.from(document.querySelectorAll('#manga-pages .page'));
+  const top = window.scrollY + 72; // trừ header + controls
+  let best = 1, bestDelta = Infinity;
+  for (const el of pages){
+    const rect = el.getBoundingClientRect();
+    const y = rect.top + window.scrollY;
+    const delta = Math.abs(y - top);
+    if (delta < bestDelta){
+      bestDelta = delta;
+      best = parseInt(el.dataset.page || '1', 10) || 1;
+    }
+  }
+  return best;
+}
+
+// throttle
+function throttle(fn, ms){
+  let t=0;
+  return (...args)=>{
+    const now=Date.now();
+    if (now - t >= ms){ t = now; fn(...args); }
+  };
+}
+
+/* ===== UI khởi tạo ===== */
 document.addEventListener('DOMContentLoaded', () => {
   renderList();
 
@@ -143,9 +188,30 @@ document.addEventListener('DOMContentLoaded', () => {
   $('to-bottom').addEventListener('click', () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
   window.addEventListener('scroll', () => {
     $('floater').classList.toggle('hidden', window.scrollY < 400 || $('reading-page').classList.contains('hidden'));
+    // lưu tiến độ đọc khi đang ở trang đọc
+    if (!$('reading-page').classList.contains('hidden') && currentTruyen){
+      throttledSave();
+    }
   });
+
+  // Tự phục hồi tiến độ nếu có
+  const state = loadProgress();
+  if (state){
+    // Nếu truyenList có tên khớp thì mở luôn
+    const tr = truyenList.find(x => x.ten === state.truyen);
+    if (tr){
+      openTruyen(tr, {restore: state});
+      return;
+    }
+  }
 });
 
+const throttledSave = throttle(()=>{
+  const page = getVisiblePageApprox();
+  saveProgress({ truyen: currentTruyen?.ten, chap: currentChap, page });
+}, 1000);
+
+/* ===== Trang chủ ===== */
 function renderList() {
   const listEl = $('truyen-list');
   listEl.innerHTML = '';
@@ -160,7 +226,7 @@ function renderList() {
   });
 }
 
-function openTruyen(t) {
+function openTruyen(t, opts={}) {
   currentTruyen = t; currentChap = 1;
   $('truyen-list').classList.add('hidden');
   $('reading-page').classList.remove('hidden');
@@ -169,10 +235,15 @@ function openTruyen(t) {
   const sel = $('chap-select'); sel.innerHTML = '';
   for (let i=1;i<=t.soChap;i++){
     const o = document.createElement('option');
-    o.value = i; o.textContent = `Chương ${i}`; if (i===1) o.selected = true;
-    sel.appendChild(o);
+    o.value = i; o.textContent = `Chương ${i}`; sel.appendChild(o);
   }
-  startChapter(1);
+
+  if (opts.restore && typeof opts.restore.chap === 'number'){
+    startChapter(opts.restore.chap, {restorePage: opts.restore.page || 1});
+  } else {
+    sel.value = 1;
+    startChapter(1);
+  }
 }
 
 function goHome() {
@@ -182,13 +253,14 @@ function goHome() {
   currentTruyen = null;
 }
 
-async function startChapter(ch) {
+/* ===== Đọc chap (cuộn dọc + lazy) ===== */
+async function startChapter(ch, opts={}){
   if (!currentTruyen) return;
   if (ch < 1 || ch > currentTruyen.soChap) return;
   currentChap = ch;
   $('chap-select').value = ch;
   $('chapter-title').textContent = `${currentTruyen.ten} - Chương ${ch}`;
-  $('manga-pages').innerHTML = ''; // không hiện "Đang dò trang"
+  $('manga-pages').innerHTML = '';
   $('page-indicator').textContent = 'Trang 0';
   endReached = false; nextToDiscover = 1; discoveredCount = 0;
 
@@ -198,10 +270,10 @@ async function startChapter(ch) {
     return;
   }
 
-  // Sinh trước vài placeholder, lazy fill
-  for (let i = 0; i < 4; i++) spawnNextPlaceholder(pat);
+  // Sinh trước vài placeholder
+  for (let i = 0; i < DISCOVER_AHEAD; i++) spawnNextPlaceholder(pat);
 
-  // Sentinel để nạp thêm khi gần cuối
+  // Sentinel để nạp thêm
   let sentinel = $('sentinel');
   if (!sentinel) {
     sentinel = document.createElement('div');
@@ -216,6 +288,16 @@ async function startChapter(ch) {
     }
   }, {rootMargin: '1200px 0px'});
   ioMore.observe(sentinel);
+
+  // Nếu có yêu cầu phục hồi về trang X
+  if (opts.restorePage && Number.isFinite(opts.restorePage)){
+    await ensurePageExists(pat, opts.restorePage);
+    scrollToPage(opts.restorePage);
+    // lưu ngay để cập nhật timestamp
+    saveProgress({ truyen: currentTruyen.ten, chap: currentChap, page: opts.restorePage });
+  } else {
+    window.scrollTo({top:0, behavior:'instant'});
+  }
 }
 
 function spawnNextPlaceholder(pat){
@@ -273,6 +355,27 @@ async function loadOne(holder, pat){
   $('page-indicator').textContent = `Trang ${discoveredCount}`;
 }
 
+/* === Phục hồi/điều hướng tới trang N === */
+function scrollToPage(p){
+  const el = document.querySelector(`#manga-pages .page[data-page="${p}"]`);
+  if (el){
+    const y = el.getBoundingClientRect().top + window.scrollY - 70; // trừ header+controls
+    window.scrollTo({top: y, behavior: 'instant'});
+  }
+}
+
+async function ensurePageExists(pat, targetPage, maxWaitMs = 8000){
+  // Sinh thêm placeholder cho đến khi có holder của targetPage
+  const start = Date.now();
+  while (!document.querySelector(`#manga-pages .page[data-page="${targetPage}"]`)) {
+    if (endReached) break;
+    spawnNextPlaceholder(pat);
+    if (Date.now() - start > maxWaitMs) break;
+    await new Promise(r=>setTimeout(r, 120));
+  }
+}
+
+/* ===== Điều hướng chap ===== */
 function goToChap(n){ startChapter(n); }
 function goToPrevChap(){ if (currentChap>1) startChapter(currentChap-1); }
 function goToNextChap(){ if (currentTruyen && currentChap < currentTruyen.soChap) startChapter(currentChap+1); }
