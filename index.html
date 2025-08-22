@@ -74,20 +74,17 @@ const BASE = (() => {
   return p.endsWith('/') ? p : p.replace(/[^/]+$/, '');
 })();
 
-/* ===== Config truyện ===== */
+/* ===== Config truyện (giữ Manhwa1) ===== */
 const truyenList = [
   { ten: "Manhwa1", folder: "Manhwa1", cover: "Manhwa1/bg.jpg", soChap: 97 }
 ];
 
-/* ===== State ===== */
+/* ===== State & tuning ===== */
 let currentTruyen = null, currentChap = 1;
-let endReached = false;              // đã gặp trang không tồn tại
-let nextToDiscover = 1;              // trang kế tiếp cần “dò”
-let discoveredCount = 0;             // đã phát hiện & gắn vào DOM
-let patternCache = new Map();        // chap -> 'plain' | 'backslash'
-let inFlight = 0;                    // ảnh đang tải
-let MAX_CONCURRENCY = 2;             // giới hạn kết nối đồng thời (tiết kiệm)
-const DISCOVER_AHEAD = 4;            // số trang “đi trước” để tạo khung & lazy load
+let endReached = false, nextToDiscover = 1, discoveredCount = 0;
+let inFlight = 0, MAX_CONCURRENCY = 2;
+const DISCOVER_AHEAD = 4;
+const patternCache = new Map(); // chap -> 'plain' | 'backslash'
 const existCache = new Map();
 
 /* ===== Helpers ===== */
@@ -98,28 +95,19 @@ const pageUrl = (folder, chap, page, pat) => (
 );
 
 function probe(src, {timeoutMs=10000, retries=1} = {}) {
-  // kiểm tra ảnh tồn tại (onload/onerror) + timeout + retry backoff
   const cached = existCache.get(src);
   if (cached !== undefined) return Promise.resolve(cached);
 
   return new Promise((resolve) => {
     let done = false, tmr;
     const img = new Image();
-    const clean = (ok) => {
-      if (done) return;
-      done = true;
-      clearTimeout(tmr);
-      existCache.set(src, ok);
-      resolve(ok);
-    };
+    const clean = (ok) => { if (done) return; done = true; clearTimeout(tmr); existCache.set(src, ok); resolve(ok); };
     img.onload = () => clean(true);
     img.onerror = async () => {
       if (retries > 0) {
-        await new Promise(r => setTimeout(r, 600)); // backoff ngắn
+        await new Promise(r => setTimeout(r, 600));
         resolve(probe(src, {timeoutMs, retries: retries - 1}));
-      } else {
-        clean(false);
-      }
+      } else clean(false);
     };
     tmr = setTimeout(() => clean(false), timeoutMs);
     img.src = src;
@@ -137,26 +125,30 @@ async function detectPattern(folder, chap) {
   return pat;
 }
 
+/* ===== DOM refs (KHÔNG dùng biến global theo id nữa) ===== */
+const $ = (id) => document.getElementById(id);
+
 /* ===== UI ===== */
 document.addEventListener('DOMContentLoaded', () => {
   renderList();
 
-  prev_chap.addEventListener('click', ()=> goToChap(currentChap-1));
-  next_chap.addEventListener('click', ()=> goToChap(currentChap+1));
-  chap_select.addEventListener('change', e=> goToChap(parseInt(e.target.value)));
-  data_saver.addEventListener('change', () => {
-    MAX_CONCURRENCY = data_saver.checked ? 2 : 4; // nới lỏng khi tắt tiết kiệm
+  $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
+  $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
+  $('chap-select').addEventListener('change', e=> goToChap(parseInt(e.target.value)));
+  $('data-saver').addEventListener('change', () => {
+    MAX_CONCURRENCY = $('data-saver').checked ? 2 : 4;
   });
 
-  to_top.addEventListener('click', () => chapter_top.scrollIntoView({behavior:'smooth'}));
-  to_bottom.addEventListener('click', () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
+  $('to-top').addEventListener('click', () => $('chapter-top').scrollIntoView({behavior:'smooth'}));
+  $('to-bottom').addEventListener('click', () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
   window.addEventListener('scroll', () => {
-    floater.classList.toggle('hidden', window.scrollY < 400 || reading_page.classList.contains('hidden'));
+    $('floater').classList.toggle('hidden', window.scrollY < 400 || $('reading-page').classList.contains('hidden'));
   });
 });
 
 function renderList() {
-  truyen_list.innerHTML = '';
+  const listEl = $('truyen-list');
+  listEl.innerHTML = '';
   truyenList.forEach(t => {
     const card = document.createElement('div');
     card.className = 'truyen-card';
@@ -164,29 +156,28 @@ function renderList() {
       <img src="${BASE}${t.cover}" alt="${t.ten}" onerror="this.src='https://via.placeholder.com/200x260?text=Ảnh+bìa'">
       <h3>${t.ten}</h3><p style="padding:0 10px 12px;opacity:.7">${t.soChap} chương</p>`;
     card.addEventListener('click', () => openTruyen(t));
-    truyen_list.appendChild(card);
+    listEl.appendChild(card);
   });
 }
 
 function openTruyen(t) {
   currentTruyen = t; currentChap = 1;
-  truyen_list.classList.add('hidden');
-  reading_page.classList.remove('hidden');
+  $('truyen-list').classList.add('hidden');
+  $('reading-page').classList.remove('hidden');
   document.querySelector('header h1').textContent = `📖 ${t.ten}`;
 
-  // dropdown chap
-  chap_select.innerHTML = '';
+  const sel = $('chap-select'); sel.innerHTML = '';
   for (let i=1;i<=t.soChap;i++){
     const o = document.createElement('option');
     o.value = i; o.textContent = `Chương ${i}`; if (i===1) o.selected = true;
-    chap_select.appendChild(o);
+    sel.appendChild(o);
   }
   startChapter(1);
 }
 
 function goHome() {
-  reading_page.classList.add('hidden');
-  truyen_list.classList.remove('hidden');
+  $('reading-page').classList.add('hidden');
+  $('truyen-list').classList.remove('hidden');
   document.querySelector('header h1').textContent = '📖 Web Đọc Truyện';
   currentTruyen = null;
 }
@@ -195,94 +186,91 @@ async function startChapter(ch) {
   if (!currentTruyen) return;
   if (ch < 1 || ch > currentTruyen.soChap) return;
   currentChap = ch;
-  chap_select.value = ch;
-  chapter_title.textContent = `${currentTruyen.ten} - Chương ${ch}`;
-  manga_pages.innerHTML = ''; // ❗Không hiện “Đang dò trang”
-  page_indicator.textContent = 'Trang 0';
-  endReached = false;
-  nextToDiscover = 1;
-  discoveredCount = 0;
+  $('chap-select').value = ch;
+  $('chapter-title').textContent = `${currentTruyen.ten} - Chương ${ch}`;
+  $('manga-pages').innerHTML = ''; // không hiện "Đang dò trang"
+  $('page-indicator').textContent = 'Trang 0';
+  endReached = false; nextToDiscover = 1; discoveredCount = 0;
 
   const pat = await detectPattern(currentTruyen.folder, ch);
   if (!pat) {
-    manga_pages.innerHTML = `<div class="page"><div class="skel"></div><p style="color:#c33">Không tìm thấy trang 1 của chap.</p></div>`;
+    $('manga-pages').innerHTML = `<div class="page"><div class="skel"></div><p style="color:#c33">Không tìm thấy trang 1 của chap.</p></div>`;
     return;
   }
 
-  // Tạo sẵn khung cho vài trang đầu (DISCOVER_AHEAD), lazy fill khi vào viewport
-  for (let i = 0; i < DISCOVER_AHEAD; i++) spawnNextPlaceholder();
+  // Sinh trước vài placeholder, lazy fill
+  for (let i = 0; i < 4; i++) spawnNextPlaceholder(pat);
 
-  // Khi scroll tới gần cuối, tiếp tục sinh placeholder
-  const sentinel = document.createElement('div');
-  sentinel.id = 'sentinel';
-  sentinel.style.height = '1px';
-  manga_pages.appendChild(sentinel);
+  // Sentinel để nạp thêm khi gần cuối
+  let sentinel = $('sentinel');
+  if (!sentinel) {
+    sentinel = document.createElement('div');
+    sentinel.id = 'sentinel';
+    sentinel.style.height = '1px';
+    $('manga-pages').appendChild(sentinel);
+  }
 
   const ioMore = new IntersectionObserver((entries)=>{
     if (entries.some(e => e.isIntersecting)) {
-      for (let i = 0; i < 2; i++) spawnNextPlaceholder(); // sinh dần dần
+      for (let i = 0; i < 2; i++) spawnNextPlaceholder(pat);
     }
   }, {rootMargin: '1200px 0px'});
   ioMore.observe(sentinel);
+}
 
-  function spawnNextPlaceholder(){
-    if (endReached) return;
-    const p = nextToDiscover++;
-    const holder = document.createElement('div');
-    holder.className = 'page';
-    holder.dataset.page = String(p);
-    // skeleton
-    const sk = document.createElement('div'); sk.className = 'skel'; holder.appendChild(sk);
-    manga_pages.insertBefore(holder, sentinel);
-    lazyLoad(holder, pat);
+function spawnNextPlaceholder(pat){
+  if (endReached) return;
+  const p = nextToDiscover++;
+  const holder = document.createElement('div');
+  holder.className = 'page';
+  holder.dataset.page = String(p);
+  const sk = document.createElement('div'); sk.className = 'skel';
+  holder.appendChild(sk);
+  const sentinel = $('sentinel');
+  $('manga-pages').insertBefore(holder, sentinel || null);
+  lazyLoad(holder, pat);
+}
+
+function lazyLoad(holder, pat){
+  const io = new IntersectionObserver(async (entries, obs) => {
+    if (!entries[0].isIntersecting) return;
+    obs.unobserve(holder);
+    await loadOne(holder, pat);
+  }, {rootMargin: '600px 0px'});
+  io.observe(holder);
+}
+
+async function loadOne(holder, pat){
+  if (endReached || inFlight >= MAX_CONCURRENCY) {
+    setTimeout(()=>loadOne(holder, pat), 180);
+    return;
+  }
+  const page = parseInt(holder.dataset.page, 10);
+  const src = pageUrl(currentTruyen.folder, currentChap, page, pat);
+
+  inFlight++;
+  const ok = await probe(src, {timeoutMs: 12000, retries: 2});
+  inFlight--;
+
+  if (!ok) {
+    if (page === 1) holder.innerHTML = `<p style="color:#c33">Không tải được trang 1.</p>`;
+    endReached = true;
+    return;
   }
 
-  function lazyLoad(holder, pat){
-    const io = new IntersectionObserver(async (entries, obs) => {
-      if (!entries[0].isIntersecting) return;
-      obs.unobserve(holder);
-      await loadOne(holder, pat);
-    }, {rootMargin: '600px 0px'}); // bắt đầu tải khi còn cách ~600px
-    io.observe(holder);
-  }
+  const img = new Image();
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.fetchPriority = discoveredCount < 2 ? 'high' : 'low';
+  img.alt = `Trang ${page}`;
+  img.src = src;
+  img.onerror = () => { img.replaceWith(document.createTextNode('Lỗi tải ảnh.')); };
 
-  async function loadOne(holder, pat){
-    if (endReached || inFlight >= MAX_CONCURRENCY) {
-      // đợi một chút rồi thử lại
-      setTimeout(()=>loadOne(holder, pat), 180);
-      return;
-    }
-    const page = parseInt(holder.dataset.page, 10);
-    const src = pageUrl(currentTruyen.folder, currentChap, page, pat);
+  holder.innerHTML = '';
+  holder.appendChild(img);
 
-    inFlight++;
-    const ok = await probe(src, {timeoutMs: 12000, retries: 2});
-    inFlight--;
-
-    if (!ok) {
-      // nếu là trang 1 thất bại => coi như chap rỗng
-      if (page === 1) {
-        holder.innerHTML = `<p style="color:#c33">Không tải được trang 1.</p>`;
-      }
-      endReached = true; // dừng tại đây (coi như hết trang)
-      return;
-    }
-
-    // Gắn ảnh thật (ưu tiên thấp để không tranh băng thông)
-    const pic = document.createElement('img');
-    pic.loading = 'lazy';
-    pic.decoding = 'async';
-    pic.fetchPriority = discoveredCount < 2 ? 'high' : 'low'; // 2 ảnh đầu ưu tiên cao
-    pic.alt = `Trang ${page}`;
-    pic.src = src;
-    pic.onerror = () => { pic.replaceWith(document.createTextNode('Lỗi tải ảnh.')); };
-
-    holder.innerHTML = '';
-    holder.appendChild(pic);
-
-    discoveredCount++;
-    page_indicator.textContent = `Trang ${discoveredCount}`;
-  }
+  discoveredCount++;
+  $('page-indicator').textContent = `Trang ${discoveredCount}`;
 }
 
 function goToChap(n){ startChapter(n); }
