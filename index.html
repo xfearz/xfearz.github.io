@@ -30,7 +30,7 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 .float-btn{border:none;border-radius:999px;padding:10px 14px;background:#fff;color:var(--primary);box-shadow:0 4px 12px rgba(0,0,0,.2);cursor:pointer;font-weight:600}
 .hidden{display:none}
 
-/* FULLSCREEN LOGIN OVERLAY */
+/* LOGIN OVERLAY */
 #login-overlay{position:fixed;inset:0;z-index:9999;background:linear-gradient(180deg,rgba(0,0,0,.6),rgba(0,0,0,.7));display:flex;align-items:center;justify-content:center}
 .login-card{width:min(92vw,380px);background:#fff;border-radius:14px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.35);text-align:center}
 .login-card h2{margin:6px 0 4px}.login-card p{margin:6px 0 16px;color:#444;font-size:14px}
@@ -51,12 +51,12 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
   <button class="home-btn" onclick="goHome()">Trang chủ</button>
 </header>
 
-<!-- LOGIN OVERLAY -->
-<div id="login-overlay" class="hidden" aria-hidden="true">
+<!-- LOGIN OVERLAY (hiện mặc định nếu chưa có cookie) -->
+<div id="login-overlay" aria-hidden="true">
   <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <h2 id="login-title">Đăng nhập</h2>
-    <p>Nhập <b>1 chữ cái in hoa (A–Z)</b> để vào xem.</p>
-    <input id="login-input" class="login-input" type="password" inputmode="latin" maxlength="1" autocomplete="off" placeholder="Ví dụ: A" />
+    <p>Nhập <b>mật khẩu</b> để vào xem.</p>
+    <input id="login-input" class="login-input" type="password" autocomplete="off" placeholder="Mật khẩu" />
     <div class="login-actions">
       <button id="login-submit" class="login-btn btn-primary">Vào</button>
       <button id="login-youtube" class="login-btn btn-ghost">Thoát</button>
@@ -124,6 +124,10 @@ const truyenList = [
   { ten: "Manhwa2", folder: "Manhwa2", cover: "Manhwa2/bg.jpg", soChap: 2 }
 ];
 
+/* ===== Login config ===== */
+const PASSWORD = "MANHWA"; // <<< ĐỔI MẬT KHẨU Ở ĐÂY
+let __appInitialized = false;      // chặn init UI nhiều lần
+
 /* ===== State & tuning ===== */
 let currentTruyen = null, currentChap = 1;
 let endReached = false, nextToDiscover = 1, discoveredCount = 0;
@@ -186,8 +190,6 @@ function loadProgress(){
 function clearProgress(){
   try { localStorage.removeItem(SAVE_KEY); } catch(_) {}
 }
-
-// Ước lượng trang gần đỉnh viewport để lưu
 function getVisiblePageApprox(){
   const pages = Array.from(document.querySelectorAll('#manga-pages .page'));
   const top = window.scrollY + 72;
@@ -214,46 +216,51 @@ function throttle(fn, ms){
 /* ===== LOGIN FLOW ===== */
 function showLogin(){
   const overlay = $('login-overlay');
-  overlay.classList.remove('hidden');
+  overlay.style.display = 'flex';
   overlay.setAttribute('aria-hidden','false');
   document.body.style.overflow='hidden';
-  setTimeout(()=>{ $('login-input').focus(); }, 50);
+  setTimeout(()=>{ const i=$('login-input'); if(i) i.focus(); }, 50);
 }
-function hideLogin(){
+function hideLoginAndRemove(){
   const overlay = $('login-overlay');
-  overlay.classList.add('hidden');
-  overlay.setAttribute('aria-hidden','true');
+  if (!overlay) return;
+  overlay.parentNode.removeChild(overlay); // remove khỏi DOM để không chắn nữa
   document.body.style.overflow='';
 }
-function validatePass(pw){ return /^[A-Z]$/.test(pw || ''); }
+function validatePass(pw){ return (pw || '') === PASSWORD; }
 function handleLoginSubmit(){
-  const val = $('login-input').value.trim();
+  const val = ($('login-input')?.value || '').trim();
   if (validatePass(val)){
     setCookie('manga_login','1',365);
-    hideLogin();
+    hideLoginAndRemove();
     afterLoginInit();
   } else {
     location.href = 'https://www.youtube.com/';
   }
 }
 
-/* ===== UI khởi tạo ===== */
+/* ===== UI khởi tạo (login) ===== */
 document.addEventListener('DOMContentLoaded', () => {
-  if (getCookie('manga_login') === '1'){ afterLoginInit(); }
-  else { showLogin(); }
-
+  // events cho login
   $('login-submit').addEventListener('click', handleLoginSubmit);
   $('login-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') handleLoginSubmit(); });
   $('login-youtube').addEventListener('click', ()=> location.href='https://www.youtube.com/');
+
+  // check cookie
+  if (getCookie('manga_login') === '1'){ hideLoginAndRemove(); afterLoginInit(); }
+  else { showLogin(); }
 });
 
 /* ===== Khởi tạo giao diện sau khi login hợp lệ ===== */
 function afterLoginInit(){
+  if (__appInitialized) return;   // guard để không init 2 lần
+  __appInitialized = true;
+
   renderList();
 
   $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
   $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
-  $('next-chap-bottom').addEventListener('click', ()=> goToNextChap()); // NÚT CUỐI TRANG
+  $('next-chap-bottom').addEventListener('click', ()=> goToNextChap()); // Nút cuối trang
   $('chap-select').addEventListener('change', e=> goToChap(parseInt(e.target.value)));
   $('data-saver').addEventListener('change', () => { MAX_CONCURRENCY = $('data-saver').checked ? 2 : 4; });
 
@@ -264,7 +271,7 @@ function afterLoginInit(){
     if (!$('reading-page').classList.contains('hidden') && currentTruyen){ throttledSave(); }
   });
 
-  // Phục hồi tiến độ đọc nếu có
+  // Phục hồi tiến độ đọc nếu có (trừ khi bạn về Trang chủ đã xoá)
   const state = loadProgress();
   if (state){
     const tr = truyenList.find(x => x.ten === state.truyen);
