@@ -124,30 +124,31 @@ header{position:sticky;top:0;z-index:10;background:var(--primary);color:#fff;pad
 </div>
 
 <script>
-/* Helpers */
+/* ===== Helpers ===== */
 const $=id=>document.getElementById(id);
 function setCookie(n,v,d=365){const t=new Date();t.setTime(t.getTime()+d*24*60*60*1000);document.cookie=`${n}=${encodeURIComponent(v)}; expires=${t.toUTCString()}; path=/; SameSite=Lax`}
 function getCookie(n){const m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?decodeURIComponent(m[1]):null}
+const throttle=(fn,ms)=>{let t=0;return(...a)=>{const n=Date.now();if(n-t>=ms){t=n;fn(...a)}}};
 
-/* Base path */
+/* ===== Base path ===== */
 const BASE=(()=>{const p=location.pathname;return p.endsWith('/')?p:p.replace(/[^/]+$/,'');})();
 
-/* Config */
+/* ===== Config danh sách ===== */
 const truyenList=[
  {ten:"Manhwa1",folder:"Manhwa1",cover:"Manhwa1/bg.jpg",soChap:97},
  {ten:"Manhwa2",folder:"Manhwa2",cover:"Manhwa2/bg.jpg",soChap:2},
  {ten:"Manhwa3",folder:"Manhwa3",cover:"Manhwa3/bg.jpg",soChap:18},
-{ten:"Manhwa4",folder:"Manhwa4",cover:"Manhwa4/bg.jpg",soChap:33}
+ {ten:"Manhwa4",folder:"Manhwa4",cover:"Manhwa4/bg.jpg",soChap:33}
 ];
 const PASSWORD="MANHWA";
 let __appInitialized=false;
 const LAYOUT_KEY='manga_home_layout_v1';
 
-/* Layout apply */
+/* ===== Layout apply ===== */
 function applyLayout(mode){
   const list=$('truyen-list');
   const bG=$('layout-grid'), bR=$('layout-row');
-  if(mode!=='grid') mode='row';
+  if(mode!=='grid') mode='row'; // default: row
   list.classList.toggle('grid',mode==='grid');
   list.classList.toggle('row',mode==='row');
   bG.classList.toggle('active',mode==='grid');
@@ -155,7 +156,7 @@ function applyLayout(mode){
   localStorage.setItem(LAYOUT_KEY,mode);
 }
 
-/* Login */
+/* ===== Login ===== */
 function showLogin(){$('login-overlay').style.display='flex';document.body.style.overflow='hidden';}
 function hideLoginAndRemove(){const o=$('login-overlay');o?.parentNode.removeChild(o);document.body.style.overflow='';}
 function validatePass(p){return p===PASSWORD;}
@@ -168,25 +169,188 @@ document.addEventListener('DOMContentLoaded',()=>{
  if(getCookie('manga_login')==='1'){hideLoginAndRemove();afterLoginInit();}else showLogin();
 });
 
-/* After login init */
-function afterLoginInit(){
- if(__appInitialized) return; __appInitialized=true;
- renderList();
- const saved=localStorage.getItem(LAYOUT_KEY)||'row';
- applyLayout(saved);
- $('layout-grid').addEventListener('click',()=>applyLayout('grid'));
- $('layout-row').addEventListener('click',()=>applyLayout('row'));
+/* ====== READER CORE (lazy-load) ====== */
+let currentTruyen=null, currentChap=1;
+let endReached=false, nextToDiscover=1, inFlight=0, discoveredCount=0;
+let MAX_CONCURRENCY=2;
+const DISCOVER_AHEAD=4;
+const patternCache=new Map(); // chap -> 'plain' | 'backslash'
+const existCache=new Map();
+
+const pageUrl=(folder,chap,page,pat)=>(
+  pat==='backslash'
+   ? `${BASE}${folder}/Chap${chap}/Chap${chap}%5C${page}.jpg`
+   : `${BASE}${folder}/Chap${chap}/${page}.jpg`
+);
+
+function probe(src,{timeoutMs=10000,retries=1}={}){
+  const cached=existCache.get(src);
+  if(cached!==undefined) return Promise.resolve(cached);
+  return new Promise(resolve=>{
+    let done=false,tmr;
+    const img=new Image();
+    const finish=ok=>{if(done) return; done=true; clearTimeout(tmr); existCache.set(src,ok); resolve(ok);};
+    img.onload=()=>finish(true);
+    img.onerror=async()=>{ if(retries>0){await new Promise(r=>setTimeout(r,600)); resolve(probe(src,{timeoutMs,retries:retries-1}));} else finish(false); };
+    tmr=setTimeout(()=>finish(false),timeoutMs);
+    img.src=src;
+  });
 }
 
-/* Render list */
+async function detectPattern(folder, chap){
+  if(patternCache.has(chap)) return patternCache.get(chap);
+  const a=pageUrl(folder,chap,1,'plain');
+  const b=pageUrl(folder,chap,1,'backslash');
+  const okA=await probe(a,{retries:1});
+  const pat= okA ? 'plain' : (await probe(b,{retries:1}) ? 'backslash' : null);
+  if(!pat) return null;
+  patternCache.set(chap,pat);
+  return pat;
+}
+
+/* ====== UI sau login ====== */
+function afterLoginInit(){
+  if(__appInitialized) return; __appInitialized=true;
+  renderList();
+  const saved=localStorage.getItem(LAYOUT_KEY)||'row';
+  applyLayout(saved);
+  $('layout-grid').addEventListener('click',()=>applyLayout('grid'));
+  $('layout-row').addEventListener('click',()=>applyLayout('row'));
+
+  // Reader controls
+  $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
+  $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
+  $('next-chap-bottom').addEventListener('click', ()=> goToNextChap());
+  $('chap-select').addEventListener('change', e=> goToChap(parseInt(e.target.value)));
+  $('data-saver').addEventListener('change', ()=>{ MAX_CONCURRENCY= $('data-saver').checked?2:4; });
+
+  // Floater
+  $('to-top').addEventListener('click', ()=> $('chapter-top').scrollIntoView({behavior:'smooth'}));
+  $('to-bottom').addEventListener('click', ()=> window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
+  window.addEventListener('scroll', ()=>{
+    const readingHidden = document.getElementById('reading-page').classList.contains('hidden');
+    document.getElementById('floater').classList.toggle('hidden', window.scrollY<400 || readingHidden);
+  });
+}
+
+/* ====== Trang chủ ====== */
 function renderList(){
- const list=$('truyen-list');list.innerHTML='';
- truyenList.forEach(t=>{
-   const c=document.createElement('div');c.className='truyen-card';
-   c.innerHTML=`<img src="${BASE}${t.cover}" alt="${t.ten}" onerror="this.src='https://via.placeholder.com/200x260?text=Ảnh+bìa'"><h3>${t.ten}</h3><p style="padding:0 10px 12px;opacity:.7">${t.soChap} chương</p>`;
-   c.addEventListener('click',()=>alert("Mở "+t.ten)); // ở đây bạn giữ code đọc như cũ
-   list.appendChild(c);
- });
+  const list=$('truyen-list'); list.innerHTML='';
+  truyenList.forEach(t=>{
+    const c=document.createElement('div'); c.className='truyen-card';
+    c.innerHTML=`
+      <img src="${BASE}${t.cover}" alt="${t.ten}" onerror="this.src='https://via.placeholder.com/200x260?text=Ảnh+bìa'">
+      <h3>${t.ten}</h3>
+      <p style="padding:0 10px 12px;opacity:.7">${t.soChap} chương</p>
+    `;
+    c.addEventListener('click', ()=> openTruyen(t));   /* ✅ mở trình đọc */
+    list.appendChild(c);
+  });
+}
+
+/* ====== Điều hướng ====== */
+function goHome(){
+  // Ẩn reader, hiện list
+  document.getElementById('reading-page').classList.add('hidden');
+  document.getElementById('truyen-list').classList.remove('hidden');
+  document.querySelector('header h1').textContent='📖 Web Đọc Truyện';
+  currentTruyen=null;
+}
+
+function openTruyen(t,opts={}){
+  currentTruyen=t; currentChap=1;
+  document.getElementById('truyen-list').classList.add('hidden');
+  document.getElementById('reading-page').classList.remove('hidden');
+  document.querySelector('header h1').textContent=`📖 ${t.ten}`;
+
+  // fill select chap
+  const sel=$('chap-select'); sel.innerHTML='';
+  for(let i=1;i<=t.soChap;i++){ const o=document.createElement('option'); o.value=i; o.textContent=`Chương ${i}`; sel.appendChild(o); }
+  sel.value=1;
+
+  startChapter(1);
+}
+
+function goToChap(n){ if(!currentTruyen) return; if(n<1||n>currentTruyen.soChap) return; startChapter(n); }
+function goToNextChap(){ if(currentTruyen && currentChap<currentTruyen.soChap) startChapter(currentChap+1); }
+
+/* ====== Đọc chap (lazy) ====== */
+async function startChapter(ch, opts={}){
+  if(!currentTruyen) return;
+  currentChap=ch;
+  $('chap-select').value=ch;
+  $('chapter-title').textContent=`${currentTruyen.ten} - Chương ${ch}`;
+  const container=$('manga-pages');
+  container.innerHTML='';
+  $('page-indicator').textContent='Trang 0';
+  endReached=false; nextToDiscover=1; inFlight=0; discoveredCount=0;
+
+  const pat=await detectPattern(currentTruyen.folder,ch);
+  if(!pat){
+    container.innerHTML=`<div class="page"><div class="skel"></div><p style="color:#c33">Không tìm thấy trang 1 của chap.</p></div>`;
+    return;
+  }
+
+  // seed placeholder
+  for(let i=0;i<DISCOVER_AHEAD;i++) spawnNextPlaceholder(pat);
+
+  // sentinel
+  let sentinel=document.getElementById('sentinel');
+  if(!sentinel){ sentinel=document.createElement('div'); sentinel.id='sentinel'; sentinel.style.height='1px'; container.appendChild(sentinel); }
+  const ioMore=new IntersectionObserver((entries)=>{
+    if(entries.some(e=>e.isIntersecting)){ for(let i=0;i<2;i++) spawnNextPlaceholder(pat); }
+  }, {rootMargin:'1200px 0px'});
+  ioMore.observe(sentinel);
+
+  window.scrollTo({top:0, behavior:'instant'});
+}
+
+function spawnNextPlaceholder(pat){
+  if(endReached) return;
+  const p=nextToDiscover++;
+  const holder=document.createElement('div');
+  holder.className='page';
+  holder.dataset.page=String(p);
+  const sk=document.createElement('div'); sk.className='skel';
+  holder.appendChild(sk);
+  const sentinel=document.getElementById('sentinel');
+  document.getElementById('manga-pages').insertBefore(holder, sentinel||null);
+  lazyLoad(holder, pat);
+}
+
+function lazyLoad(holder, pat){
+  const io=new IntersectionObserver(async (entries,obs)=>{
+    if(!entries[0].isIntersecting) return;
+    obs.unobserve(holder); await loadOne(holder, pat);
+  }, {rootMargin:'600px 0px'});
+  io.observe(holder);
+}
+
+async function loadOne(holder, pat){
+  if(endReached || inFlight>=MAX_CONCURRENCY){ setTimeout(()=>loadOne(holder,pat), 160); return; }
+  const page=parseInt(holder.dataset.page,10);
+  const src=pageUrl(currentTruyen.folder, currentChap, page, pat);
+
+  inFlight++;
+  const ok=await probe(src,{timeoutMs:12000,retries:2});
+  inFlight--;
+
+  if(!ok){
+    if(page===1) holder.innerHTML=`<p style="color:#c33">Không tải được trang 1.</p>`;
+    endReached=true; return;
+  }
+
+  const img=new Image();
+  img.loading='lazy';
+  img.decoding='async';
+  img.fetchPriority= discoveredCount<2 ? 'high' : 'low';
+  img.alt=`Trang ${page}`;
+  img.src=src;
+  img.onerror=()=>{ img.replaceWith(document.createTextNode('Lỗi tải ảnh.')); };
+
+  holder.innerHTML=''; holder.appendChild(img);
+  discoveredCount++;
+  $('page-indicator').textContent=`Trang ${discoveredCount}`;
 }
 </script>
 </body>
