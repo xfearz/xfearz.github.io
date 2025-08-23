@@ -9,7 +9,6 @@
 *{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
 header{position:sticky;top:0;z-index:10;background:var(--primary);color:#fff;padding:12px 56px;text-align:center}
 .home-btn{position:absolute;left:12px;top:12px;border:none;border-radius:6px;padding:6px 10px;background:#fff;color:var(--primary);cursor:pointer}
-main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;min-height:60vh}
 .truyen-card{width:200px;background:#fff;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.2);overflow:hidden;cursor:pointer;transition:.2s;position:relative}
 .truyen-card:hover{transform:translateY(-3px);box-shadow:0 6px 14px rgba(0,0,0,.25)}
 .truyen-card img{width:100%;height:260px;object-fit:cover;display:block}
@@ -73,12 +72,12 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
   <button class="home-btn" onclick="goHome()">Trang chủ</button>
 </header>
 
-<!-- LOGIN OVERLAY (hiện mặc định nếu chưa có cookie) -->
-<div id="login-overlay" aria-hidden="true">
+<!-- LOGIN OVERLAY -->
+<div id="login-overlay">
   <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <h2 id="login-title">Đăng nhập</h2>
     <p>Nhập <b>mật khẩu</b> để vào xem.</p>
-    <input id="login-input" class="login-input" type="password" autocomplete="off" placeholder="Mật khẩu" />
+    <input id="login-input" class="login-input" type="password" placeholder="Mật khẩu" />
     <div class="login-actions">
       <button id="login-submit" class="login-btn btn-primary">Vào</button>
       <button id="login-youtube" class="login-btn btn-ghost">Thoát</button>
@@ -88,10 +87,10 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 </div>
 
 <main>
-  <!-- Nút chuyển layout Dọc / Ngang -->
+  <!-- Nút chuyển layout -->
   <div class="layout-switch">
-    <button id="layout-grid" class="layout-btn active" title="Hiển thị dọc (lưới)">Dọc</button>
-    <button id="layout-row" class="layout-btn" title="Hiển thị ngang (cuộn)">Ngang</button>
+    <button id="layout-grid" class="layout-btn" title="Hiển thị dọc (lưới)">Dọc</button>
+    <button id="layout-row" class="layout-btn active" title="Hiển thị ngang (cuộn)">Ngang</button>
   </div>
 
   <div id="truyen-list"></div>
@@ -113,13 +112,8 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 
       <h2 class="chapter-title" id="chapter-title"></h2>
       <div id="manga-pages"></div>
-
-      <!-- Nút qua chap sau ở CUỐI TRANG -->
-      <div class="end-controls">
-        <button id="next-chap-bottom" class="next-chap-btn">⏭ Qua chap sau</button>
-      </div>
-
-      <p class="tip">Cuộn dọc, ảnh tải lần lượt. Bật “Chế độ tiết kiệm” để giới hạn kết nối khi mạng yếu. (Tiến độ đọc sẽ được lưu tự động)</p>
+      <div class="end-controls"><button id="next-chap-bottom" class="next-chap-btn">⏭ Qua chap sau</button></div>
+      <p class="tip">Cuộn dọc, ảnh tải lần lượt. Bật “Chế độ tiết kiệm” để giới hạn kết nối khi mạng yếu.</p>
     </div>
   </div>
 </main>
@@ -130,376 +124,69 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 </div>
 
 <script>
-/* ===== Cookie helpers ===== */
-function setCookie(name, value, days=365){
-  const d = new Date(); d.setTime(d.getTime()+days*24*60*60*1000);
-  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${d.toUTCString()}; path=/; SameSite=Lax`;
-}
-function getCookie(name){
-  const match = document.cookie.match(new RegExp('(?:^|; )'+name+'=([^;]*)'));
-  return match ? decodeURIComponent(match[1]) : null;
-}
+/* Helpers */
+const $=id=>document.getElementById(id);
+function setCookie(n,v,d=365){const t=new Date();t.setTime(t.getTime()+d*24*60*60*1000);document.cookie=`${n}=${encodeURIComponent(v)}; expires=${t.toUTCString()}; path=/; SameSite=Lax`}
+function getCookie(n){const m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?decodeURIComponent(m[1]):null}
 
-/* ===== Base path (GitHub Pages) ===== */
-const BASE = (() => {
-  const p = location.pathname;
-  return p.endsWith('/') ? p : p.replace(/[^/]+$/, '');
-})();
+/* Base path */
+const BASE=(()=>{const p=location.pathname;return p.endsWith('/')?p:p.replace(/[^/]+$/,'');})();
 
-/* ===== Config truyện (ví dụ) ===== */
-const truyenList = [
-  { ten: "Manhwa1", folder: "Manhwa1", cover: "Manhwa1/bg.jpg", soChap: 97 },
-  { ten: "Manhwa2", folder: "Manhwa2", cover: "Manhwa2/bg.jpg", soChap: 2 },
-  { ten: "Manhwa3", folder: "Manhwa3", cover: "Manhwa3/bg.jpg", soChap: 18 }
+/* Config */
+const truyenList=[
+ {ten:"Manhwa1",folder:"Manhwa1",cover:"Manhwa1/bg.jpg",soChap:97},
+ {ten:"Manhwa2",folder:"Manhwa2",cover:"Manhwa2/bg.jpg",soChap:2},
+ {ten:"Manhwa3",folder:"Manhwa3",cover:"Manhwa3/bg.jpg",soChap:18}
 ];
+const PASSWORD="MANHWA";
+let __appInitialized=false;
+const LAYOUT_KEY='manga_home_layout_v1';
 
-/* ===== Login config ===== */
-const PASSWORD = "MANHWA"; // <<< ĐỔI MẬT KHẨU Ở ĐÂY
-let __appInitialized = false;      // chặn init UI nhiều lần
-
-/* ===== State & tuning ===== */
-let currentTruyen = null, currentChap = 1;
-let endReached = false, nextToDiscover = 1, discoveredCount = 0;
-let inFlight = 0, MAX_CONCURRENCY = 2;
-const DISCOVER_AHEAD = 4;
-const patternCache = new Map(); // chap -> 'plain' | 'backslash'
-const existCache = new Map();
-
-/* ===== Helpers ===== */
-const $ = (id) => document.getElementById(id);
-const SAVE_KEY = 'manga_reader_progress_v1';
-const LAYOUT_KEY = 'manga_home_layout_v1'; // 'grid' | 'row'
-
-const pageUrl = (folder, chap, page, pat) => (
-  pat === 'backslash'
-   ? `${BASE}${folder}/Chap${chap}/Chap${chap}%5C${page}.jpg`
-   : `${BASE}${folder}/Chap${chap}/${page}.jpg`
-);
-
-function probe(src, {timeoutMs=10000, retries=1} = {}) {
-  const cached = existCache.get(src);
-  if (cached !== undefined) return Promise.resolve(cached);
-  return new Promise((resolve) => {
-    let done = false, tmr;
-    const img = new Image();
-    const clean = (ok) => { if (done) return; done = true; clearTimeout(tmr); existCache.set(src, ok); resolve(ok); };
-    img.onload = () => clean(true);
-    img.onerror = async () => {
-      if (retries > 0) { await new Promise(r => setTimeout(r, 600)); resolve(probe(src, {timeoutMs, retries: retries - 1})); }
-      else clean(false);
-    };
-    tmr = setTimeout(() => clean(false), timeoutMs);
-    img.src = src;
-  });
-}
-
-async function detectPattern(folder, chap) {
-  if (patternCache.has(chap)) return patternCache.get(chap);
-  const plain = pageUrl(folder, chap, 1, 'plain');
-  const back  = pageUrl(folder, chap, 1, 'backslash');
-  const okPlain = await probe(plain, {retries:1});
-  const pat = okPlain ? 'plain' : (await probe(back, {retries:1}) ? 'backslash' : null);
-  if (!pat) return null;
-  patternCache.set(chap, pat);
-  return pat;
-}
-
-/* ====== Lưu/Phục hồi tiến độ ====== */
-function saveProgress(state){
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify({...state, ts: Date.now()})); } catch(_) {}
-}
-function loadProgress(){
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || !data.truyen || !data.chap) return null;
-    return data;
-  } catch(_) { return null; }
-}
-function clearProgress(){
-  try { localStorage.removeItem(SAVE_KEY); } catch(_) {}
-}
-function getVisiblePageApprox(){
-  const pages = Array.from(document.querySelectorAll('#manga-pages .page'));
-  const top = window.scrollY + 72;
-  let best = 1, bestDelta = Infinity;
-  for (const el of pages){
-    const rect = el.getBoundingClientRect();
-    const y = rect.top + window.scrollY;
-    const delta = Math.abs(y - top);
-    if (delta < bestDelta){
-      bestDelta = delta;
-      best = parseInt(el.dataset.page || '1', 10) || 1;
-    }
-  }
-  return best;
-}
-function throttle(fn, ms){
-  let t=0;
-  return (...args)=>{
-    const now=Date.now();
-    if (now - t >= ms){ t = now; fn(...args); }
-  };
-}
-
-/* ===== Layout apply (Grid / Row) ===== */
+/* Layout apply */
 function applyLayout(mode){
-  const listEl = $('truyen-list');
-  const bGrid = document.getElementById('layout-grid');
-  const bRow  = document.getElementById('layout-row');
-
-  if (mode !== 'row') mode = 'grid';
-  listEl.classList.toggle('grid', mode==='grid');
-  listEl.classList.toggle('row',  mode==='row');
-
-  bGrid?.classList.toggle('active', mode==='grid');
-  bRow?.classList.toggle('active',  mode==='row');
-
-  try { localStorage.setItem(LAYOUT_KEY, mode); } catch(_) {}
+  const list=$('truyen-list');
+  const bG=$('layout-grid'), bR=$('layout-row');
+  if(mode!=='grid') mode='row';
+  list.classList.toggle('grid',mode==='grid');
+  list.classList.toggle('row',mode==='row');
+  bG.classList.toggle('active',mode==='grid');
+  bR.classList.toggle('active',mode==='row');
+  localStorage.setItem(LAYOUT_KEY,mode);
 }
 
-/* ===== LOGIN FLOW ===== */
-function showLogin(){
-  const overlay = $('login-overlay');
-  overlay.style.display = 'flex';
-  overlay.setAttribute('aria-hidden','false');
-  document.body.style.overflow='hidden';
-  setTimeout(()=>{ const i=$('login-input'); if(i) i.focus(); }, 50);
-}
-function hideLoginAndRemove(){
-  const overlay = $('login-overlay');
-  if (!overlay) return;
-  overlay.parentNode.removeChild(overlay); // remove khỏi DOM để không chắn nữa
-  document.body.style.overflow='';
-}
-function validatePass(pw){ return (pw || '') === PASSWORD; }
-function handleLoginSubmit(){
-  const val = ($('login-input')?.value || '').trim();
-  if (validatePass(val)){
-    setCookie('manga_login','1',365);
-    hideLoginAndRemove();
-    afterLoginInit();
-  } else {
-    location.href = 'https://www.youtube.com/';
-  }
-}
+/* Login */
+function showLogin(){$('login-overlay').style.display='flex';document.body.style.overflow='hidden';}
+function hideLoginAndRemove(){const o=$('login-overlay');o?.parentNode.removeChild(o);document.body.style.overflow='';}
+function validatePass(p){return p===PASSWORD;}
+function handleLoginSubmit(){const v=$('login-input').value.trim();if(validatePass(v)){setCookie('manga_login','1',365);hideLoginAndRemove();afterLoginInit();}else location.href='https://www.youtube.com/';}
 
-/* ===== UI khởi tạo (login) ===== */
-document.addEventListener('DOMContentLoaded', () => {
-  // events cho login
-  $('login-submit').addEventListener('click', handleLoginSubmit);
-  $('login-input').addEventListener('keydown', (e)=>{ if(e.key==='Enter') handleLoginSubmit(); });
-  $('login-youtube').addEventListener('click', ()=> location.href='https://www.youtube.com/');
-
-  // check cookie
-  if (getCookie('manga_login') === '1'){ hideLoginAndRemove(); afterLoginInit(); }
-  else { showLogin(); }
+document.addEventListener('DOMContentLoaded',()=>{
+ $('login-submit').addEventListener('click',handleLoginSubmit);
+ $('login-input').addEventListener('keydown',e=>{if(e.key==='Enter')handleLoginSubmit();});
+ $('login-youtube').addEventListener('click',()=>location.href='https://www.youtube.com/');
+ if(getCookie('manga_login')==='1'){hideLoginAndRemove();afterLoginInit();}else showLogin();
 });
 
-/* ===== Khởi tạo giao diện sau khi login hợp lệ ===== */
+/* After login init */
 function afterLoginInit(){
-  if (__appInitialized) return;   // guard để không init 2 lần
-  __appInitialized = true;
-
-  renderList();
-
-  // Áp layout đã lưu + gắn sự kiện nút
-  const savedLayout = localStorage.getItem(LAYOUT_KEY) || 'grid';
-  applyLayout(savedLayout);
-  document.getElementById('layout-grid').addEventListener('click', () => applyLayout('grid'));
-  document.getElementById('layout-row').addEventListener('click',  () => applyLayout('row'));
-
-  $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
-  $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
-  $('next-chap-bottom').addEventListener('click', ()=> goToNextChap()); // Nút cuối trang
-  $('chap-select').addEventListener('change', e=> goToChap(parseInt(e.target.value)));
-  $('data-saver').addEventListener('change', () => { MAX_CONCURRENCY = $('data-saver').checked ? 2 : 4; });
-
-  $('to-top').addEventListener('click', () => $('chapter-top').scrollIntoView({behavior:'smooth'}));
-  $('to-bottom').addEventListener('click', () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
-  window.addEventListener('scroll', () => {
-    $('floater').classList.toggle('hidden', window.scrollY < 400 || $('reading-page').classList.contains('hidden'));
-    if (!$('reading-page').classList.contains('hidden') && currentTruyen){ throttledSave(); }
-  });
-
-  // Phục hồi tiến độ đọc nếu có (trừ khi bạn về Trang chủ đã xoá)
-  const state = loadProgress();
-  if (state){
-    const tr = truyenList.find(x => x.ten === state.truyen);
-    if (tr){ openTruyen(tr, {restore: state}); return; }
-  }
+ if(__appInitialized) return; __appInitialized=true;
+ renderList();
+ const saved=localStorage.getItem(LAYOUT_KEY)||'row';
+ applyLayout(saved);
+ $('layout-grid').addEventListener('click',()=>applyLayout('grid'));
+ $('layout-row').addEventListener('click',()=>applyLayout('row'));
 }
 
-const throttledSave = throttle(()=>{
-  const page = getVisiblePageApprox();
-  saveProgress({ truyen: currentTruyen?.ten, chap: currentChap, page });
-}, 1000);
-
-/* ===== Trang chủ ===== */
-function renderList() {
-  const listEl = $('truyen-list');
-  listEl.innerHTML = '';
-  truyenList.forEach(t => {
-    const card = document.createElement('div');
-    card.className = 'truyen-card';
-    card.innerHTML = `
-      <img src="${BASE}${t.cover}" alt="${t.ten}" onerror="this.src='https://via.placeholder.com/200x260?text=Ảnh+bìa'">
-      <h3>${t.ten}</h3><p style="padding:0 10px 12px;opacity:.7">${t.soChap} chương</p>`;
-    card.addEventListener('click', () => openTruyen(t));
-    listEl.appendChild(card);
-  });
+/* Render list */
+function renderList(){
+ const list=$('truyen-list');list.innerHTML='';
+ truyenList.forEach(t=>{
+   const c=document.createElement('div');c.className='truyen-card';
+   c.innerHTML=`<img src="${BASE}${t.cover}" alt="${t.ten}" onerror="this.src='https://via.placeholder.com/200x260?text=Ảnh+bìa'"><h3>${t.ten}</h3><p style="padding:0 10px 12px;opacity:.7">${t.soChap} chương</p>`;
+   c.addEventListener('click',()=>alert("Mở "+t.ten)); // ở đây bạn giữ code đọc như cũ
+   list.appendChild(c);
+ });
 }
-
-function openTruyen(t, opts={}) {
-  currentTruyen = t; currentChap = 1;
-  $('truyen-list').classList.add('hidden');
-  $('reading-page').classList.remove('hidden');
-  document.querySelector('header h1').textContent = `📖 ${t.ten}`;
-
-  const sel = $('chap-select'); sel.innerHTML = '';
-  for (let i=1;i<=t.soChap;i++){
-    const o = document.createElement('option');
-    o.value = i; o.textContent = `Chương ${i}`; sel.appendChild(o);
-  }
-
-  if (opts.restore && typeof opts.restore.chap === 'number'){
-    startChapter(opts.restore.chap, {restorePage: opts.restore.page || 1});
-  } else {
-    sel.value = 1;
-    startChapter(1);
-  }
-}
-
-/* Khi bấm Trang chủ: xoá tiến độ => reload sau đó sẽ KHÔNG vào chỗ đọc dở */
-function goHome() {
-  clearProgress(); /* <<< quan trọng */
-  $('reading-page').classList.add('hidden');
-  $('truyen-list').classList.remove('hidden');
-  document.querySelector('header h1').textContent = '📖 Web Đọc Truyện';
-  currentTruyen = null;
-}
-
-/* ===== Đọc chap (cuộn dọc + lazy) ===== */
-async function startChapter(ch, opts={}){
-  if (!currentTruyen) return;
-  if (ch < 1 || ch > currentTruyen.soChap) return;
-  currentChap = ch;
-  $('chap-select').value = ch;
-  $('chapter-title').textContent = `${currentTruyen.ten} - Chương ${ch}`;
-  $('manga-pages').innerHTML = '';
-  $('page-indicator').textContent = 'Trang 0';
-  endReached = false; nextToDiscover = 1; discoveredCount = 0;
-
-  const pat = await detectPattern(currentTruyen.folder, ch);
-  if (!pat) {
-    $('manga-pages').innerHTML = `<div class="page"><div class="skel"></div><p style="color:#c33">Không tìm thấy trang 1 của chap.</p></div>`;
-    return;
-  }
-
-  for (let i = 0; i < DISCOVER_AHEAD; i++) spawnNextPlaceholder(pat);
-
-  let sentinel = $('sentinel');
-  if (!sentinel) {
-    sentinel = document.createElement('div');
-    sentinel.id = 'sentinel';
-    sentinel.style.height = '1px';
-    $('manga-pages').appendChild(sentinel);
-  }
-
-  const ioMore = new IntersectionObserver((entries)=>{
-    if (entries.some(e => e.isIntersecting)) {
-      for (let i = 0; i < 2; i++) spawnNextPlaceholder(pat);
-    }
-  }, {rootMargin: '1200px 0px'});
-  ioMore.observe(sentinel);
-
-  if (opts.restorePage && Number.isFinite(opts.restorePage)){
-    await ensurePageExists(pat, opts.restorePage);
-    scrollToPage(opts.restorePage);
-    saveProgress({ truyen: currentTruyen.ten, chap: currentChap, page: opts.restorePage });
-  } else {
-    window.scrollTo({top:0, behavior:'instant'});
-  }
-}
-
-function spawnNextPlaceholder(pat){
-  if (endReached) return;
-  const p = nextToDiscover++;
-  const holder = document.createElement('div');
-  holder.className = 'page';
-  holder.dataset.page = String(p);
-  const sk = document.createElement('div'); sk.className = 'skel';
-  holder.appendChild(sk);
-  const sentinel = $('sentinel');
-  $('manga-pages').insertBefore(holder, sentinel || null);
-  lazyLoad(holder, pat);
-}
-
-function lazyLoad(holder, pat){
-  const io = new IntersectionObserver(async (entries, obs) => {
-    if (!entries[0].isIntersecting) return;
-    obs.unobserve(holder);
-    await loadOne(holder, pat);
-  }, {rootMargin: '600px 0px'});
-  io.observe(holder);
-}
-
-async function loadOne(holder, pat){
-  if (endReached || inFlight >= MAX_CONCURRENCY) {
-    setTimeout(()=>loadOne(holder, pat), 180);
-    return;
-  }
-  const page = parseInt(holder.dataset.page, 10);
-  const src = pageUrl(currentTruyen.folder, currentChap, page, pat);
-
-  inFlight++;
-  const ok = await probe(src, {timeoutMs: 12000, retries: 2});
-  inFlight--;
-
-  if (!ok) {
-    if (page === 1) holder.innerHTML = `<p style="color:#c33">Không tải được trang 1.</p>`;
-    endReached = true;
-    return;
-  }
-
-  const img = new Image();
-  img.loading = 'lazy';
-  img.decoding = 'async';
-  img.fetchPriority = discoveredCount < 2 ? 'high' : 'low';
-  img.alt = `Trang ${page}`;
-  img.src = src;
-  img.onerror = () => { img.replaceWith(document.createTextNode('Lỗi tải ảnh.')); };
-
-  holder.innerHTML = '';
-  holder.appendChild(img);
-
-  discoveredCount++;
-  $('page-indicator').textContent = `Trang ${discoveredCount}`;
-}
-
-/* === Phục hồi/điều hướng tới trang N === */
-function scrollToPage(p){
-  const el = document.querySelector(`#manga-pages .page[data-page="${p}"]`);
-  if (el){
-    const y = el.getBoundingClientRect().top + window.scrollY - 70;
-    window.scrollTo({top: y, behavior: 'instant'});
-  }
-}
-async function ensurePageExists(pat, targetPage, maxWaitMs = 8000){
-  const start = Date.now();
-  while (!document.querySelector(`#manga-pages .page[data-page="${targetPage}"]`)) {
-    if (endReached) break;
-    spawnNextPlaceholder(pat);
-    if (Date.now() - start > maxWaitMs) break;
-    await new Promise(r=>setTimeout(r, 120));
-  }
-}
-
-/* ===== Điều hướng chap ===== */
-function goToChap(n){ startChapter(n); }
-function goToPrevChap(){ if (currentChap>1) startChapter(currentChap-1); }
-function goToNextChap(){ if (currentTruyen && currentChap < currentTruyen.soChap) startChapter(currentChap+1); }
 </script>
 </body>
 </html>
