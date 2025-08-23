@@ -10,10 +10,32 @@
 header{position:sticky;top:0;z-index:10;background:var(--primary);color:#fff;padding:12px 56px;text-align:center}
 .home-btn{position:absolute;left:12px;top:12px;border:none;border-radius:6px;padding:6px 10px;background:#fff;color:var(--primary);cursor:pointer}
 main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;min-height:60vh}
-.truyen-card{width:200px;background:#fff;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.2);overflow:hidden;cursor:pointer;transition:.2s}
+.truyen-card{width:200px;background:#fff;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.2);overflow:hidden;cursor:pointer;transition:.2s;position:relative}
 .truyen-card:hover{transform:translateY(-3px);box-shadow:0 6px 14px rgba(0,0,0,.25)}
 .truyen-card img{width:100%;height:260px;object-fit:cover;display:block}
 .truyen-card h3{margin:0;padding:10px;font-size:16px}
+
+/* ====== Layout switch (Dọc / Ngang) ====== */
+.layout-switch{max-width:1100px;width:100%;margin:8px auto 6px;display:flex;gap:8px;justify-content:flex-end}
+.layout-btn{padding:8px 12px;border:1px solid #ddd;background:#fff;border-radius:8px;cursor:pointer}
+.layout-btn.active{background:var(--primary);color:#fff;border-color:transparent}
+
+/* Dọc (Grid) */
+#truyen-list.grid{
+  max-width:1100px;margin:0 auto;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;
+}
+
+/* Ngang (Row / Carousel) */
+#truyen-list.row{
+  max-width:1100px;margin:0 auto;
+  display:flex;gap:12px;overflow-x:auto;padding:8px 6px;
+  scroll-snap-type:x mandatory;
+}
+#truyen-list.row::-webkit-scrollbar{height:8px}
+#truyen-list.row::-webkit-scrollbar-thumb{background:#ccc;border-radius:999px}
+/* card phù hợp cả 2 layout */
+#truyen-list.row .truyen-card{flex:0 0 200px;scroll-snap-align:start}
 
 .reading-container{max-width:1000px;margin:0 auto;width:100%}
 .chapter-controls{position:sticky;top:56px;z-index:9;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,.08);padding:8px 10px;margin-bottom:10px;display:flex;gap:8px;align-items:center;justify-content:space-between}
@@ -66,6 +88,12 @@ main{padding:14px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center;mi
 </div>
 
 <main>
+  <!-- Nút chuyển layout Dọc / Ngang -->
+  <div class="layout-switch">
+    <button id="layout-grid" class="layout-btn active" title="Hiển thị dọc (lưới)">Dọc</button>
+    <button id="layout-row" class="layout-btn" title="Hiển thị ngang (cuộn)">Ngang</button>
+  </div>
+
   <div id="truyen-list"></div>
 
   <div id="reading-page" class="hidden">
@@ -140,6 +168,7 @@ const existCache = new Map();
 /* ===== Helpers ===== */
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'manga_reader_progress_v1';
+const LAYOUT_KEY = 'manga_home_layout_v1'; // 'grid' | 'row'
 
 const pageUrl = (folder, chap, page, pat) => (
   pat === 'backslash'
@@ -214,6 +243,22 @@ function throttle(fn, ms){
   };
 }
 
+/* ===== Layout apply (Grid / Row) ===== */
+function applyLayout(mode){
+  const listEl = $('truyen-list');
+  const bGrid = document.getElementById('layout-grid');
+  const bRow  = document.getElementById('layout-row');
+
+  if (mode !== 'row') mode = 'grid';
+  listEl.classList.toggle('grid', mode==='grid');
+  listEl.classList.toggle('row',  mode==='row');
+
+  bGrid?.classList.toggle('active', mode==='grid');
+  bRow?.classList.toggle('active',  mode==='row');
+
+  try { localStorage.setItem(LAYOUT_KEY, mode); } catch(_) {}
+}
+
 /* ===== LOGIN FLOW ===== */
 function showLogin(){
   const overlay = $('login-overlay');
@@ -258,6 +303,12 @@ function afterLoginInit(){
   __appInitialized = true;
 
   renderList();
+
+  // Áp layout đã lưu + gắn sự kiện nút
+  const savedLayout = localStorage.getItem(LAYOUT_KEY) || 'grid';
+  applyLayout(savedLayout);
+  document.getElementById('layout-grid').addEventListener('click', () => applyLayout('grid'));
+  document.getElementById('layout-row').addEventListener('click',  () => applyLayout('row'));
 
   $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
   $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
