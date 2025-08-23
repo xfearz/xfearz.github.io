@@ -146,7 +146,7 @@ const BASE = (() => {
   return p.endsWith('/') ? p : p.replace(/[^/]+$/, '');
 })();
 
-/* ===== Config truyện (ví dụ) ===== */
+/* ===== Config truyện ===== */
 const truyenList = [
   { ten: "Manhwa1", folder: "Manhwa1", cover: "Manhwa1/bg.jpg", soChap: 97 },
   { ten: "Manhwa2", folder: "Manhwa2", cover: "Manhwa2/bg.jpg", soChap: 2 },
@@ -155,8 +155,8 @@ const truyenList = [
 ];
 
 /* ===== Login config ===== */
-const PASSWORD = "MANHWA"; // <<< ĐỔI MẬT KHẨU Ở ĐÂY
-let __appInitialized = false;      // chặn init UI nhiều lần
+const PASSWORD = "MANHWA";
+let __appInitialized = false;
 
 /* ===== State & tuning ===== */
 let currentTruyen = null, currentChap = 1;
@@ -170,6 +170,15 @@ const existCache = new Map();
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'manga_reader_progress_v1';
 const LAYOUT_KEY = 'manga_home_layout_v1'; // 'grid' | 'row'
+
+/* URL helpers */
+function getSearchParams(){ return new URLSearchParams(location.search); }
+function goToHomeURL(){ location.href = BASE; }
+function updateReadingURL(){
+  const url = new URL(location.href);
+  url.search = `?truyen=${encodeURIComponent(currentTruyen.folder)}&chap=${currentChap}`;
+  history.replaceState({}, '', url);
+}
 
 const pageUrl = (folder, chap, page, pat) => (
   pat === 'backslash'
@@ -218,9 +227,7 @@ function loadProgress(){
     return data;
   } catch(_) { return null; }
 }
-function clearProgress(){
-  try { localStorage.removeItem(SAVE_KEY); } catch(_) {}
-}
+function clearProgress(){ try { localStorage.removeItem(SAVE_KEY); } catch(_) {} }
 function getVisiblePageApprox(){
   const pages = Array.from(document.querySelectorAll('#manga-pages .page'));
   const top = window.scrollY + 72;
@@ -311,23 +318,19 @@ function afterLoginInit(){
   document.getElementById('layout-grid').addEventListener('click', () => applyLayout('grid'));
   document.getElementById('layout-row').addEventListener('click',  () => applyLayout('row'));
 
-  $('prev-chap').addEventListener('click', ()=> goToChap(currentChap-1));
-  $('next-chap').addEventListener('click', ()=> goToChap(currentChap+1));
-  $('next-chap-bottom').addEventListener('click', ()=> goToNextChap()); // Nút cuối trang
-  $('chap-select').addEventListener('change', e=> goToChap(parseInt(e.target.value)));
-  $('data-saver').addEventListener('change', () => { MAX_CONCURRENCY = $('data-saver').checked ? 2 : 4; });
+  // Nếu URL có ?truyen=...&chap=... => mở trực tiếp trang đọc (trang riêng)
+  const params = getSearchParams();
+  if (params.has('truyen')) {
+    const key = params.get('truyen');
+    const chap = parseInt(params.get('chap') || '1', 10) || 1;
+    const tr = truyenList.find(x => x.folder === key || x.ten === key);
+    if (tr) { openTruyen(tr, {restore: {chap, page: 1}}); return; }
+  }
 
-  $('to-top').addEventListener('click', () => $('chapter-top').scrollIntoView({behavior:'smooth'}));
-  $('to-bottom').addEventListener('click', () => window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'}));
-  window.addEventListener('scroll', () => {
-    $('floater').classList.toggle('hidden', window.scrollY < 400 || $('reading-page').classList.contains('hidden'));
-    if (!$('reading-page').classList.contains('hidden') && currentTruyen){ throttledSave(); }
-  });
-
-  // Phục hồi tiến độ đọc nếu có (trừ khi bạn về Trang chủ đã xoá)
+  // Không có query => thử phục hồi tiến độ
   const state = loadProgress();
   if (state){
-    const tr = truyenList.find(x => x.ten === state.truyen);
+    const tr = truyenList.find(x => x.ten === state.truyen || x.folder === state.truyen);
     if (tr){ openTruyen(tr, {restore: state}); return; }
   }
 }
@@ -347,38 +350,20 @@ function renderList() {
     card.innerHTML = `
       <img src="${BASE}${t.cover}" alt="${t.ten}" onerror="this.src='https://via.placeholder.com/200x260?text=Ảnh+bìa'">
       <h3>${t.ten}</h3><p style="padding:0 10px 12px;opacity:.7">${t.soChap} chương</p>`;
-    card.addEventListener('click', () => openTruyen(t));
+    // 👉 Mở trang đọc RIÊNG bằng cách chuyển URL có query
+    card.addEventListener('click', () => {
+      const url = new URL(location.href);
+      url.search = `?truyen=${encodeURIComponent(t.folder)}&chap=1`;
+      location.href = url.toString();
+    });
     listEl.appendChild(card);
   });
 }
 
-function openTruyen(t, opts={}) {
-  currentTruyen = t; currentChap = 1;
-  $('truyen-list').classList.add('hidden');
-  $('reading-page').classList.remove('hidden');
-  document.querySelector('header h1').textContent = `📖 ${t.ten}`;
-
-  const sel = $('chap-select'); sel.innerHTML = '';
-  for (let i=1;i<=t.soChap;i++){
-    const o = document.createElement('option');
-    o.value = i; o.textContent = `Chương ${i}`; sel.appendChild(o);
-  }
-
-  if (opts.restore && typeof opts.restore.chap === 'number'){
-    startChapter(opts.restore.chap, {restorePage: opts.restore.page || 1});
-  } else {
-    sel.value = 1;
-    startChapter(1);
-  }
-}
-
-/* Khi bấm Trang chủ: xoá tiến độ => reload sau đó sẽ KHÔNG vào chỗ đọc dở */
+/* ===== Điều hướng cấp trang ===== */
 function goHome() {
-  clearProgress(); /* <<< quan trọng */
-  $('reading-page').classList.add('hidden');
-  $('truyen-list').classList.remove('hidden');
-  document.querySelector('header h1').textContent = '📖 Web Đọc Truyện';
-  currentTruyen = null;
+  clearProgress(); // tùy bạn, để chắc chắn không tự nhảy vào chỗ đọc dở
+  goToHomeURL();   // về URL gốc, xóa ?truyen=&chap=
 }
 
 /* ===== Đọc chap (cuộn dọc + lazy) ===== */
@@ -391,6 +376,8 @@ async function startChapter(ch, opts={}){
   $('manga-pages').innerHTML = '';
   $('page-indicator').textContent = 'Trang 0';
   endReached = false; nextToDiscover = 1; discoveredCount = 0;
+
+  updateReadingURL(); // << cập nhật URL mỗi khi đổi chap
 
   const pat = await detectPattern(currentTruyen.folder, ch);
   if (!pat) {
@@ -422,6 +409,29 @@ async function startChapter(ch, opts={}){
   } else {
     window.scrollTo({top:0, behavior:'instant'});
   }
+}
+
+function openTruyen(t, opts={}) {
+  currentTruyen = t; currentChap = 1;
+  $('truyen-list').classList.add('hidden');
+  $('reading-page').classList.remove('hidden');
+  document.querySelector('header h1').textContent = `📖 ${t.ten}`;
+
+  const sel = $('chap-select'); sel.innerHTML = '';
+  for (let i=1;i<=t.soChap;i++){
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `Chương ${i}`; sel.appendChild(o);
+  }
+
+  if (opts.restore && typeof opts.restore.chap === 'number'){
+    startChapter(opts.restore.chap, {restorePage: opts.restore.page || 1});
+  } else {
+    sel.value = 1;
+    startChapter(1);
+  }
+
+  // đảm bảo URL được set đúng ngay khi mở từ danh sách (nếu không dùng query)
+  updateReadingURL();
 }
 
 function spawnNextPlaceholder(pat){
